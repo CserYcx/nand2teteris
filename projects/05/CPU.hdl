@@ -1,0 +1,138 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Hack CPU (Central Processing unit), consisting of an ALU,
+ * two registers named A and D, and a program counter named PC.
+ * The CPU is designed to fetch and execute instructions written in 
+ * the Hack machine language. In particular, functions as follows:
+ * Executes the inputted instruction according to the Hack machine 
+ * language specification. The D and A in the language specification
+ * refer to CPU-resident registers, while M refers to the external
+ * memory location addressed by A, i.e. to Memory[A]. The inM input 
+ * holds the value of this location. If the current instruction needs 
+ * to write a value to M, the value is placed in outM, the address 
+ * of the target location is placed in the addressM output, and the 
+ * writeM control bit is asserted. (When writeM==0, any value may 
+ * appear in outM). The outM and writeM outputs are combinational: 
+ * they are affected instantaneously by the execution of the current 
+ * instruction. The addressM and pc outputs are clocked: although they 
+ * are affected by the execution of the current instruction, they commit 
+ * to their new values only in the next time step. If reset==1 then the 
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
+ * than to the address resulting from executing the current instruction. 
+ */
+
+
+ /**
+   * Some Tips:
+   * (Maybe i'm little careless, which makes me all the work are wrong,
+   * so i wanna to correct them, and have a great skeleton of how to simulate a CPU.)
+   * (That's not a easy work to decode an instruction, although it just has 16-bits)
+   *  1. Seperate the A-instruction and C-instruction
+   *  To A-instruction, i treat it as immediate value
+   *  If an A-instruction coming, just use the 15th bit to choose all the control'bits operation
+   *  2. To the C-instruction, you should seperate the instruction like "i xx a cccccc ddd jjj "
+   *  And then think which bits should do what
+   */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+    // Put your code here:
+    // The instruction format: "i xx a cccccc ddd jjj"
+
+    // The Upper half: About the instruction, A register, D register, ALU
+    // Here are the problems: how could i choose the instruction from, ALU' output or the just the instruction
+    // We use the three d-bits to choose A, D or M register
+
+    // The ALU's output use the d1 to choose whether to store in A register
+    // Don't forget the first rule: if the i is 0, store the instruction into the A register
+    And(a=instruction[15],b=instruction[5],out=isALUout);
+    Or(a=instruction[15],b=isALUout,out=isibit);                                // make the A instruction can be recognized
+
+    // If i bit is 0, is A instruction(isibit = 1)
+    // else : if instruction[5] is 1, ALU output
+    Mux16(a=instruction,b=loopALU,sel=isibit,out=instr);                        // the first Mux16
+
+    // Use the opcode(the i bit to choose whether the A register to store the value)
+    // If i bit is 0, load A register
+    // else : if instruction[5] is 1 , ALU output load register
+    Not(in=instruction[15], out=isAinstr);
+    Or(a=isAinstr, b=instruction[5], out=isload);
+    ARegister(in=instr,load=isload,out=Aregister,
+    out[0..14]=addressM,out=PC);                                                // go to the A register 
+
+    // The a-bit operate on the A register input or the M register input
+    // If i bit is 0, use the A register data
+    // Else: if a is 1, use the inM
+    And(a=instruction[15], b=instruction[12], out=isMinstr);                    // choose the A register or the inM
+    Mux16(a=Aregister,b=inM,sel=isMinstr,out=Mregister);                        // the second Mux16
+
+    // Use the d2 to choose the D register
+    // If i bit is 0, put nothing in D register
+    // Else: if instruction[4] is 1, ALU output into it
+    And(a=instruction[15], b=instruction[4], out=isDregister);
+    DRegister(in=loopALU,load=isDregister,out=Dregister);                       // the D register , the three d-bits choose which registers
+
+    // Use the six c-bits to calculate the value
+    // And here is to handle the instruction is A's condition (That's a horrible thing)
+    // If i bit is 0, the six c-bits is useless
+    // Else: use the six c-bits
+    And(a=instruction[15], b=instruction[11], out=zx);
+    And(a=instruction[15], b=instruction[10], out=nx);
+    And(a=instruction[15], b=instruction[9], out=zy);
+    And(a=instruction[15], b=instruction[8], out=ny);
+    And(a=instruction[15], b=instruction[7], out=f);
+    And(a=instruction[15], b=instruction[6], out=no);
+    
+    ALU(x=Dregister,y=Mregister,zx=zx,nx=nx,zy=zy,ny=ny
+    ,f=f,no=no,out=outM,out=loopALU,zr=zr,ng=ng);                               // the ALU's result
+
+
+
+    // The Lower half: About the reset, the PC, and the three j-bits
+
+    And(a=ng,b=instruction[2],out=Minus);                                       // out < 0
+
+    And(a=zr,b=instruction[1],out=Equal);                                       // out == 0
+
+    // If the out > 0
+    Not(in=ng, out=notng);
+
+    Not(in=zr, out=notzr);
+
+    And(a=notng, b=notzr, out=Greater);                                         // out > 0
+    
+    And(a=Greater, b=instruction[0], out=JMP);
+
+    Or(a=JMP, b=Minus, out=j1);
+
+    Or(a=Minus, b=Equal, out=j2);
+    
+    Or(a=j1,b=j2,out=Load1);
+
+    And(a=instruction[15], b=Load1, out=Load);                                  // A instruction or the C instruction
+
+    PC(in=PC,load=Load,inc=true,reset=reset,out[0..14]=pc);                     // the new PC value
+
+    // The addressM and the writeM
+    // I think it's redundant step to output the writeM value alone
+    // if i is 0, writeM is 0
+    // Else: if instruction[3] is 1, writeM is 1
+    And(a=instruction[3], b=instruction[15], out=writeM);
+
+}

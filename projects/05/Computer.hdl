@@ -1,0 +1,40 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/Computer.hdl
+
+/**
+ * The HACK computer, including CPU, ROM and RAM.
+ * When reset is 0, the program stored in the computer's ROM executes.
+ * When reset is 1, the execution of the program restarts. 
+ * Thus, to start a program's execution, reset must be pushed "up" (1)
+ * and "down" (0). From this point onward the user is at the mercy of 
+ * the software. In particular, depending on the program's code, the 
+ * screen may show some output and the user may be able to interact 
+ * with the computer via the keyboard.
+ */
+
+CHIP Computer {
+
+    IN reset;
+
+    PARTS:
+    // Put your code here:
+    ROM32K(address=loopPC, out=loopROM);
+    CPU(inM=loopRAM, instruction=loopROM, reset=reset, outM=outM, writeM=writeM, addressM=addressM,
+    addressM[14]=Screen,addressM[13]=R,addressM[0..13]=RAM16K,addressM[0..12]=outScreen, pc=loopPC);
+
+    // The Memory
+    And(a=Screen,b=true,out=isScreen);
+    Not(in=Screen, out=RAM);
+    And(a=RAM, b=writeM, out=isRAM);
+    And(a=Screen, b=R, out=iskey);
+    RAM16K(in=outM, load=isRAM, address=RAM16K, out=RAMout);
+    Screen(in=outM, load=isScreen, address=outScreen, out=Screenout);
+    Mux16(a=RAMout, b=Screenout, sel=isScreen, out=RorS);
+    Keyboard(out=K);
+    Mux16(a=RorS, b=K, sel=iskey, out=out,out=loopRAM);
+    
+    
+    
+}
